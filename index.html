@@ -1,154 +1,297 @@
-<!DOCTYPE html>
+from pathlib import Path
+html = r"""<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Juego de la Culebrita</title>
-  <style>
-    body {
-      background-color: #222;
-      color: white;
-      font-family: Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-    }
-    h1 {
-      margin-bottom: 10px;
-    }
-    #gameContainer {
-      position: relative;
-    }
-    canvas {
-      background-color: #111;
-      border: 3px solid #0f0;
-      display: block;
-    }
-    #score {
-      font-size: 1.2em;
-      margin-top: 10px;
-    }
-    #controls {
-      margin-top: 15px;
-      display: grid;
-      grid-template-columns: repeat(3, 60px);
-      grid-gap: 5px;
-      justify-content: center;
-    }
-    .btn {
-      background-color: #0f0;
-      color: black;
-      border: none;
-      border-radius: 8px;
-      font-size: 1.2em;
-      padding: 10px;
-      cursor: pointer;
-      user-select: none;
-    }
-    .invisible { visibility: hidden; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Culebrita — Pasto real (inicia automáticamente)</title>
+<style>
+  :root{--panel:#0b2612;--accent:#2e7d32}
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:#082618;background:#dff5d9}
+  .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:28px}
+  .card{width:420px;padding:16px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,0.8),rgba(255,255,255,0.9));box-shadow:0 10px 30px rgba(2,6,23,0.12)}
+  h1{margin:6px 0 12px 0;font-size:18px;text-align:center;color:#08331c}
+  canvas{display:block;border-radius:10px;width:400px;height:400px;background:#0a2610;box-shadow:0 8px 20px rgba(2,6,23,0.12)}
+  .status{display:flex;justify-content:space-between;align-items:center;margin-top:10px;color:#08331c}
+  .controls{display:flex;gap:8px}
+  button{padding:8px 10px;border-radius:8px;border:0;background:var(--accent);color:white;cursor:pointer}
+  .hint{font-size:13px;color:#1b5e20;margin-top:8px;text-align:center}
+  @media (max-width:480px){.card{width:92vw} canvas{width:92vw;height:92vw}}
+</style>
 </head>
 <body>
-  <h1>🐍 Juego de la Culebrita</h1>
-  <div id="gameContainer">
-    <canvas id="gameCanvas" width="400" height="400"></canvas>
+  <div class="wrap">
+    <div class="card" role="application" aria-label="Juego Culebrita">
+      <h1>🐍 Culebrita — Pasto real (inicia automáticamente)</h1>
+      <canvas id="board" width="400" height="400" aria-label="Tablero de juego"></canvas>
+      <div class="status" role="status">
+        <div>Puntaje: <strong id="score">0</strong></div>
+        <div>Nivel: <strong id="level">1</strong></div>
+        <div class="controls">
+          <button id="btnRestart">Reiniciar</button>
+          <button id="btnPause">Pausar</button>
+        </div>
+      </div>
+      <div class="hint">Usa flechas o desliza en móvil. El juego comienza automáticamente.</div>
+    </div>
   </div>
-  <div id="score">Puntaje: <span id="scoreValue">0</span> | Nivel: <span id="levelValue">1</span></div>
 
-  <div id="controls">
-    <button class="btn invisible"></button>
-    <button class="btn" id="up">⬆️</button>
-    <button class="btn invisible"></button>
-    <button class="btn" id="left">⬅️</button>
-    <button class="btn" id="down">⬇️</button>
-    <button class="btn" id="right">➡️</button>
-  </div>
+<script>
+(function(){
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const TILE = 20;
+  const COUNT = canvas.width / TILE; // 20
+  let snake = [];
+  let dir = {x:1,y:0}; // move right initially so it starts automatically
+  let nextDir = {x:1,y:0};
+  let food = null;
+  let score = 0;
+  let level = 1;
+  let speed = 140;
+  let loopId = null;
+  let running = false;
+  let paused = false;
 
-  <script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const box = 20;
-    let snake = [{x: 9 * box, y: 10 * box}];
-    let direction = null;
-    let food = randomFood();
-    let score = 0;
-    let level = 1;
-    let speed = 150;
-    let game;
+  // Images
+  const grassImg = new Image();
+  grassImg.crossOrigin = "anonymous";
+  // real grass photo (free source)
+  grassImg.src = "https://cdn.pixabay.com/photo/2016/09/26/23/38/grass-1690100_1280.jpg";
 
-    function randomFood() {
-      return {
-        x: Math.floor(Math.random() * 20) * box,
-        y: Math.floor(Math.random() * 20) * box
-      };
-    }
+  const appleImg = new Image();
+  appleImg.crossOrigin = "anonymous";
+  appleImg.src = "https://i.imgur.com/9V5Yt1i.png";
 
-    document.addEventListener('keydown', e => {
-      if (e.key === 'ArrowLeft' && direction !== 'RIGHT') direction = 'LEFT';
-      else if (e.key === 'ArrowUp' && direction !== 'DOWN') direction = 'UP';
-      else if (e.key === 'ArrowRight' && direction !== 'LEFT') direction = 'RIGHT';
-      else if (e.key === 'ArrowDown' && direction !== 'UP') direction = 'DOWN';
+  const snakeHeadImg = new Image();
+  snakeHeadImg.crossOrigin = "anonymous";
+  snakeHeadImg.src = "https://cdn-icons-png.flaticon.com/512/616/616408.png";
+
+  // ensure all images loaded (or errored) before starting
+  const loadPromises = [grassImg, appleImg, snakeHeadImg].map(img => {
+    return new Promise(res => {
+      if (img.complete && img.naturalWidth !== 0) return res();
+      img.onload = () => res();
+      img.onerror = () => res();
+      // timeout fallback
+      setTimeout(()=>res(), 3000);
     });
+  });
 
-    // Controles táctiles
-    document.getElementById('up').addEventListener('click', () => { if (direction !== 'DOWN') direction = 'UP'; });
-    document.getElementById('down').addEventListener('click', () => { if (direction !== 'UP') direction = 'DOWN'; });
-    document.getElementById('left').addEventListener('click', () => { if (direction !== 'RIGHT') direction = 'LEFT'; });
-    document.getElementById('right').addEventListener('click', () => { if (direction !== 'LEFT') direction = 'RIGHT'; });
+  function randCell(){ return { x: Math.floor(Math.random()*COUNT), y: Math.floor(Math.random()*COUNT) }; }
 
-    function collision(head, arr) {
-      return arr.some(seg => head.x === seg.x && head.y === seg.y);
+  function placeFood(){
+    let p, attempts=0;
+    do {
+      p = randCell();
+      attempts++;
+      if(attempts>1000) break;
+    } while(snake.some(s=>s.x===p.x && s.y===p.y));
+    food = p;
+  }
+
+  function reset(){
+    snake = [];
+    const cx = Math.floor(COUNT/2);
+    const cy = Math.floor(COUNT/2);
+    snake = [{x:cx-1,y:cy},{x:cx,y:cy},{x:cx+1,y:cy}];
+    dir = {x:1,y:0}; // moving right
+    nextDir = {x:1,y:0};
+    score = 0; level = 1; speed = 140;
+    running = true; paused = false;
+    placeFood();
+    document.getElementById('score').textContent = score;
+    document.getElementById('level').textContent = level;
+    startLoop();
+  }
+
+  function startLoop(){
+    if(loopId) clearInterval(loopId);
+    loopId = setInterval(()=> {
+      if(!paused) { step(); render(); }
+    }, speed);
+  }
+
+  function step(){
+    dir = nextDir;
+    const head = { x: snake[snake.length-1].x + dir.x, y: snake[snake.length-1].y + dir.y };
+
+    // wall collision
+    if(head.x < 0 || head.y < 0 || head.x >= COUNT || head.y >= COUNT){
+      return gameOver();
+    }
+    // self collision
+    if(snake.some(s=>s.x===head.x && s.y===head.y)) return gameOver();
+
+    snake.push(head);
+
+    if(food && head.x===food.x && head.y===food.y){
+      score++;
+      document.getElementById('score').textContent = score;
+      if(score % 5 === 0){
+        level++;
+        document.getElementById('level').textContent = level;
+        speed = Math.max(50, speed - 12);
+        startLoop();
+      }
+      placeFood();
+    } else {
+      snake.shift();
+    }
+  }
+
+  function gameOver(){
+    running = false;
+    clearInterval(loopId);
+    setTimeout(()=> {
+      alert('Fin del juego — Puntaje: '+score);
+    }, 60);
+  }
+
+  function render(){
+    // grass pattern
+    if(grassImg.complete && grassImg.naturalWidth !== 0){
+      // create pattern scaled so that grass texture doesn't look huge
+      // draw into a temporary canvas to scale the pattern
+      const tmp = document.createElement('canvas');
+      tmp.width = grassImg.width;
+      tmp.height = grassImg.height;
+      const tctx = tmp.getContext('2d');
+      tctx.drawImage(grassImg,0,0);
+      const pattern = ctx.createPattern(tmp, 'repeat');
+      ctx.fillStyle = pattern;
+    } else {
+      ctx.fillStyle = '#2a6b2a';
+    }
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // subtle grid
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 1;
+    for(let i=0;i<=COUNT;i++){
+      ctx.beginPath();
+      ctx.moveTo(i*TILE,0); ctx.lineTo(i*TILE,canvas.height); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0,i*TILE); ctx.lineTo(canvas.width,i*TILE); ctx.stroke();
     }
 
-    function draw() {
-      ctx.clearRect(0, 0, 400, 400);
-      for (let i = 0; i < snake.length; i++) {
-        ctx.fillStyle = i === 0 ? '#0f0' : '#7f7';
-        ctx.fillRect(snake[i].x, snake[i].y, box, box);
-      }
-      ctx.fillStyle = 'red';
-      ctx.fillRect(food.x, food.y, box, box);
-
-      let headX = snake[0].x;
-      let headY = snake[0].y;
-
-      if (direction === 'LEFT') headX -= box;
-      if (direction === 'UP') headY -= box;
-      if (direction === 'RIGHT') headX += box;
-      if (direction === 'DOWN') headY += box;
-
-      if (headX === food.x && headY === food.y) {
-        score++;
-        document.getElementById('scoreValue').textContent = score;
-        food = randomFood();
-        if (score % 5 === 0) increaseLevel();
+    // draw food
+    if(food){
+      const fx = food.x * TILE, fy = food.y * TILE;
+      if(appleImg.complete && appleImg.naturalWidth !== 0){
+        // draw apple with slight shine (draw twice with shadow)
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.25)';
+        ctx.shadowBlur = 6;
+        ctx.drawImage(appleImg, fx+2, fy+2, TILE-4, TILE-4);
+        ctx.restore();
       } else {
-        snake.pop();
+        ctx.fillStyle='red'; ctx.fillRect(fx+4,fy+4,TILE-8,TILE-8);
       }
-
-      let newHead = {x: headX, y: headY};
-
-      if (headX < 0 || headY < 0 || headX >= 400 || headY >= 400 || collision(newHead, snake)) {
-        clearInterval(game);
-        alert(`Juego terminado. Puntaje final: ${score}`);
-        location.reload();
-      }
-
-      snake.unshift(newHead);
     }
 
-    function increaseLevel() {
-      level++;
-      document.getElementById('levelValue').textContent = level;
-      speed = Math.max(50, speed - 15);
-      clearInterval(game);
-      game = setInterval(draw, speed);
+    // draw snake
+    for(let i=0;i<snake.length;i++){
+      const s = snake[i];
+      const x = s.x * TILE, y = s.y * TILE;
+      if(i < snake.length-1){
+        // body: green oval with subtle highlight
+        const grad = ctx.createLinearGradient(x, y, x+TILE, y+TILE);
+        grad.addColorStop(0, '#5ec25e');
+        grad.addColorStop(1, '#2e7d32');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.ellipse(x+TILE/2, y+TILE/2, TILE*0.42, TILE*0.42, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+        ctx.stroke();
+      } else {
+        // head: use image rotated according to dir
+        if(snakeHeadImg.complete && snakeHeadImg.naturalWidth !== 0){
+          ctx.save();
+          ctx.translate(x+TILE/2, y+TILE/2);
+          let angle = 0;
+          if(dir.x===1 && dir.y===0) angle = 0;
+          if(dir.x===-1 && dir.y===0) angle = Math.PI;
+          if(dir.x===0 && dir.y===1) angle = Math.PI/2;
+          if(dir.x===0 && dir.y===-1) angle = -Math.PI/2;
+          ctx.rotate(angle);
+          ctx.drawImage(snakeHeadImg, -TILE/2+1, -TILE/2+1, TILE-2, TILE-2);
+          ctx.restore();
+        } else {
+          ctx.fillStyle='#1f7a33';
+          ctx.fillRect(x+2,y+2,TILE-4,TILE-4);
+        }
+      }
     }
+  }
 
-    game = setInterval(draw, speed);
-  </script>
+  // input handling
+  const keyMap = {
+    'ArrowUp': {x:0,y:-1},
+    'ArrowDown': {x:0,y:1},
+    'ArrowLeft': {x:-1,y:0},
+    'ArrowRight': {x:1,y:0},
+    'w': {x:0,y:-1},
+    's': {x:0,y:1},
+    'a': {x:-1,y:0},
+    'd': {x:1,y:0}
+  };
+
+  window.addEventListener('keydown', (e)=>{
+    const k = e.key;
+    if(!keyMap[k]) return;
+    const nd = keyMap[k];
+    // prevent 180 turn
+    if(nd.x === -dir.x && nd.y === -dir.y) return;
+    nextDir = nd;
+  });
+
+  // touch swipe
+  let touchStart = null;
+  canvas.addEventListener('touchstart', (e)=> {
+    const t = e.touches[0];
+    touchStart = {x: t.clientX, y: t.clientY};
+  }, {passive:true});
+  canvas.addEventListener('touchend', (e)=> {
+    if(!touchStart) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    const threshold = 20;
+    if(Math.abs(dx) > Math.abs(dy)){
+      if(dx > threshold && !(dir.x===-1 && dir.y===0)) nextDir = {x:1,y:0};
+      if(dx < -threshold && !(dir.x===1 && dir.y===0)) nextDir = {x:-1,y:0};
+    } else {
+      if(dy > threshold && !(dir.x===0 && dir.y===-1)) nextDir = {x:0,y:1};
+      if(dy < -threshold && !(dir.x===0 && dir.y===1)) nextDir = {x:0,y:-1};
+    }
+    touchStart = null;
+  }, {passive:true});
+
+  // UI buttons
+  document.getElementById('btnRestart').addEventListener('click', ()=> reset());
+  document.getElementById('btnPause').addEventListener('click', ()=>{
+    paused = !paused;
+    document.getElementById('btnPause').textContent = paused ? 'Reanudar' : 'Pausar';
+  });
+
+  // start automatically after images load (or timeout)
+  Promise.all(loadPromises).then(()=> {
+    // ensure pattern looks good by scaling temporary canvas if needed (handled in render)
+    reset();
+    // start rendering loop immediately (render called from startLoop)
+  });
+
+  // expose for debugging
+  window._snakeGame = { reset, render };
+
+})();
+</script>
 </body>
 </html>
+"""
+p = Path("/mnt/data/juego_culebrita_pasto_real_auto.html")
+p.write_text(html, encoding="utf-8")
+p
+
